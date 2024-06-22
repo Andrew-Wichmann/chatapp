@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
+
+type RpcClient struct{}
 
 func failOnError(err error, msg string) {
 	if err != nil {
@@ -30,8 +32,8 @@ func randInt(min int, max int) int {
 	return min + rand.Intn(max-min)
 }
 
-func fibonacciRPC(n int) (res int, err error) {
-	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+func (RpcClient) FibonacciRPC(n int) (res int, err error) {
+	conn, err := amqp.Dial("amqp://user:password@localhost:5672/")
 	failOnError(err, "Failed to connect to RabbitMQ")
 	defer conn.Close()
 
@@ -87,18 +89,6 @@ func fibonacciRPC(n int) (res int, err error) {
 	}
 
 	return
-}
-
-func main() {
-	rand.Seed(time.Now().UTC().UnixNano())
-
-	n := bodyFrom(os.Args)
-
-	log.Printf(" [x] Requesting fib(%d)", n)
-	res, err := fibonacciRPC(n)
-	failOnError(err, "Failed to handle RPC request")
-
-	log.Printf(" [.] Got %d", res)
 }
 
 func bodyFrom(args []string) int {

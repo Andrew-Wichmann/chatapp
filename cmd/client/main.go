@@ -2,9 +2,8 @@ package main
 
 import (
 	"fmt"
-	"net/http"
-	"time"
 
+	"github.com/Andrew-Wichmann/chatapp/pkg/client"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -13,12 +12,16 @@ type statusMsg int
 type errMsg struct{ error }
 
 type App struct {
-	err    error
-	status int
+	err       error
+	status    int
+	rpcClient client.RpcClient
 }
 
 func (app App) Init() tea.Cmd {
-	return checkServer
+	closure := func() tea.Msg {
+		return checkServer(app)
+	}
+	return closure
 }
 
 func (app App) View() string {
@@ -53,17 +56,12 @@ func main() {
 	prog.Run()
 }
 
-var url = "http://google.com"
+func checkServer(app App) tea.Msg {
+	n, err := app.rpcClient.FibonacciRPC(10)
 
-func checkServer() tea.Msg {
-	c := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-	res, err := c.Get(url)
 	if err != nil {
 		return errMsg{err}
 	}
-	defer res.Body.Close() // nolint:errcheck
 
-	return statusMsg(res.StatusCode)
+	return statusMsg(n)
 }
