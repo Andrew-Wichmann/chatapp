@@ -7,14 +7,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type statusMsg int
+type serverResponse string
 
 type errMsg struct{ error }
 
 type App struct {
 	err       error
-	status    int
-	rpcClient client.RpcClient
+	message   string
+	rpcClient client.ChatAppClient
 }
 
 func (app App) Init() tea.Cmd {
@@ -25,8 +25,8 @@ func (app App) Init() tea.Cmd {
 }
 
 func (app App) View() string {
-	if app.status != 0 {
-		return fmt.Sprintf("Done! Got: %d. Press CTRL+C to exit", app.status)
+	if app.message != "" {
+		return fmt.Sprintf("Done! Got: %s. Press CTRL+C to exit", app.message)
 	}
 	if app.err != nil {
 		return fmt.Sprintf("something went wrong: %s", app.err)
@@ -43,8 +43,8 @@ func (app App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case errMsg:
 		app.err = msg
-	case statusMsg:
-		app.status = int(msg)
+	case serverResponse:
+		app.message = string(msg)
 	}
 	return app, nil
 }
@@ -57,11 +57,11 @@ func main() {
 }
 
 func checkServer(app App) tea.Msg {
-	n, err := app.rpcClient.FibonacciRPC(10)
+	message, err := app.rpcClient.SendMessageRPC("foobar")
 
 	if err != nil {
 		return errMsg{err}
 	}
 
-	return statusMsg(n)
+	return serverResponse(message)
 }

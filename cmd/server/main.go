@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
-	"strconv"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -68,11 +68,7 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		for d := range msgs {
-			n, err := strconv.Atoi(string(d.Body))
 			failOnError(err, "Failed to convert body to integer")
-
-			log.Printf(" [.] fib(%d)", n)
-			response := fib(n)
 
 			err = ch.PublishWithContext(ctx,
 				"",        // exchange
@@ -82,7 +78,7 @@ func main() {
 				amqp.Publishing{
 					ContentType:   "text/plain",
 					CorrelationId: d.CorrelationId,
-					Body:          []byte(strconv.Itoa(response)),
+					Body:          []byte(fmt.Sprintf("Received: %s", d.Body)),
 				})
 			failOnError(err, "Failed to publish a message")
 

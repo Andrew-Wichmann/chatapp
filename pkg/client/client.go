@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
@@ -12,7 +13,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-type RpcClient struct{}
+type ChatAppClient struct{}
 
 func failOnError(err error, msg string) {
 	if err != nil {
@@ -32,7 +33,7 @@ func randInt(min int, max int) int {
 	return min + rand.Intn(max-min)
 }
 
-func (RpcClient) FibonacciRPC(n int) (res int, err error) {
+func (ChatAppClient) SendMessageRPC(message string) (res string, err error) {
 	conn, err := amqp.Dial("amqp://user:password@localhost:5672/")
 	failOnError(err, "Failed to connect to RabbitMQ")
 	defer conn.Close()
@@ -44,7 +45,7 @@ func (RpcClient) FibonacciRPC(n int) (res int, err error) {
 	q, err := ch.QueueDeclare(
 		"",    // name
 		false, // durable
-		false, // delete when unused
+		true,  // delete when unused
 		true,  // exclusive
 		false, // noWait
 		nil,   // arguments
@@ -70,20 +71,19 @@ func (RpcClient) FibonacciRPC(n int) (res int, err error) {
 	err = ch.PublishWithContext(ctx,
 		"",          // exchange
 		"rpc_queue", // routing key
-		false,       // mandatory
+		true,        // mandatory
 		false,       // immediate
 		amqp.Publishing{
 			ContentType:   "text/plain",
 			CorrelationId: corrId,
 			ReplyTo:       q.Name,
-			Body:          []byte(strconv.Itoa(n)),
+			Body:          []byte(message),
 		})
 	failOnError(err, "Failed to publish a message")
 
 	for d := range msgs {
 		if corrId == d.CorrelationId {
-			res, err = strconv.Atoi(string(d.Body))
-			failOnError(err, "Failed to convert body to integer")
+			res = fmt.Sprintf("%s", d.Body)
 			break
 		}
 	}
