@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Andrew-Wichmann/chatapp/pkg/client"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -13,10 +15,11 @@ type serverResponse string
 type errMsg struct{ error }
 
 type App struct {
-	err       error
-	message   string
-	ta        textarea.Model
-	rpcClient client.ChatAppClient
+	err          error
+	messageInput textarea.Model
+	chatHistory  viewport.Model
+	rpcClient    client.ChatAppClient
+	history      []string
 }
 
 func newApp() App {
@@ -25,10 +28,17 @@ func newApp() App {
 	ta.Placeholder = "Start chatting"
 	ta.Prompt = "┃ "
 	ta.ShowLineNumbers = false
+	ta.SetHeight(1)
 	ta.Focus()
+	ta.KeyMap.InsertNewline.SetEnabled(false)
+
+	vp := viewport.New(30, 5)
+
+	vp.SetContent("Welcome to the chatroom")
 
 	return App{
-		ta: ta,
+		messageInput: ta,
+		chatHistory:  vp,
 	}
 }
 
@@ -37,24 +47,20 @@ func (app App) Init() tea.Cmd {
 }
 
 func (app App) View() string {
-	if app.message != "" {
-		return fmt.Sprintf("Done! Got: %s. Press CTRL+C to exit", app.message)
-	}
 	if app.err != nil {
 		return fmt.Sprintf("something went wrong: %s", app.err)
 	}
-	if app.ta.Placeholder != "" {
-		return fmt.Sprintf("%s\nPress CTRL+C to exit", app.ta.View())
-	}
-	return "Initializing"
+	return fmt.Sprintf("%s\n%s\nPress CTRL+C to exit", app.chatHistory.View(), app.messageInput.View())
 }
 
 func (app App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
-		tiCmd tea.Cmd
+		messageCmd     tea.Cmd
+		chatHistoryCmd tea.Cmd
 	)
 
-	app.ta, tiCmd = app.ta.Update(msg)
+	app.messageInput, messageCmd = app.messageInput.Update(msg)
+	app.chatHistory, chatHistoryCmd = app.chatHistory.Update(msg)
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -62,15 +68,16 @@ func (app App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return app, tea.Quit
 		case tea.KeyEnter:
 			cmd := sendMessage(app)
-			app.ta.Reset()
+			app.messageInput.Reset()
 			return app, cmd
 		}
 	case errMsg:
 		app.err = msg
 	case serverResponse:
-		app.message = string(msg)
+		app.history = append(app.history, string(msg))
+		app.chatHistory.SetContent(strings.Join(app.history, "\n"))
 	}
-	return app, tiCmd
+	return app, tea.Batch(messageCmd, chatHistoryCmd)
 }
 
 func main() {
@@ -91,7 +98,7 @@ func checkServer(app App) tea.Msg {
 
 func sendMessage(app App) tea.Cmd {
 	return func() tea.Msg {
-		message, err := app.rpcClient.SendMessageRPC(app.ta.Value())
+		message, err := app.rpcClient.SendMessageRPC(app.messageInput.Value())
 		if err != nil {
 			return errMsg{err}
 		}
