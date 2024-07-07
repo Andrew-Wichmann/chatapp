@@ -34,7 +34,14 @@ func newApp() App {
 
 	vp := viewport.New(30, 5)
 
+    // NOTE: there might be a better way to disable these keybinds
 	vp.SetContent("Welcome to the chatroom")
+    vp.KeyMap.PageDown.SetEnabled(false)
+    vp.KeyMap.PageUp.SetEnabled(false)
+    vp.KeyMap.HalfPageUp.SetEnabled(false)
+    vp.KeyMap.HalfPageDown.SetEnabled(false)
+    vp.KeyMap.Up.SetEnabled(false)
+    vp.KeyMap.Down.SetEnabled(false)
 
 	return App{
 		messageInput: ta,
@@ -76,6 +83,7 @@ func (app App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case serverResponse:
 		app.history = append(app.history, string(msg))
 		app.chatHistory.SetContent(strings.Join(app.history, "\n"))
+        app.chatHistory.GotoBottom()
 	}
 	return app, tea.Batch(messageCmd, chatHistoryCmd)
 }
