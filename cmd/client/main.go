@@ -10,8 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type serverResponse string
-
 type errMsg struct{ error }
 
 type App struct {
@@ -80,8 +78,8 @@ func (app App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case errMsg:
 		app.err = msg
-	case serverResponse:
-		app.history = append(app.history, string(msg))
+	case client.ChatResponse:
+        app.history = append(app.history, fmt.Sprintf("%s: %s", msg.Username, msg.Message))
 		app.chatHistory.SetContent(strings.Join(app.history, "\n"))
         app.chatHistory.GotoBottom()
 	}
@@ -94,22 +92,14 @@ func main() {
 	prog.Run()
 }
 
-func checkServer(app App) tea.Msg {
-	message, err := app.rpcClient.SendMessageRPC("foobar")
-
-	if err != nil {
-		return errMsg{err}
-	}
-
-	return serverResponse(message)
-}
 
 func sendMessage(app App) tea.Cmd {
 	return func() tea.Msg {
-		message, err := app.rpcClient.SendMessageRPC(app.messageInput.Value())
+        msg := client.ChatMessage{Message: app.messageInput.Value(), Username: "Andrew"}
+		response, err := app.rpcClient.SendMessageRPC(msg)
 		if err != nil {
 			return errMsg{err}
 		}
-		return serverResponse(message)
+		return response
 	}
 }

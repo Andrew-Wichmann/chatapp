@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"time"
+    "encoding/json"
 
+	"github.com/Andrew-Wichmann/chatapp/pkg/client"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -69,6 +71,19 @@ func main() {
 		defer cancel()
 		for d := range msgs {
 			failOnError(err, "Failed to convert body to integer")
+            message := client.ChatMessage{}
+            err = json.Unmarshal(d.Body, &message)
+            if err != nil {
+                fmt.Printf("Error unmarshaling message with correlationId: %s", d.CorrelationId)
+                d.Ack(false)
+                continue
+            }
+
+            resp, err := json.Marshal(message)
+            if err != nil {
+                fmt.Printf("Error marshalling response. Continuing")
+                continue
+            }
 
 			err = ch.PublishWithContext(ctx,
 				"",        // exchange
@@ -78,7 +93,7 @@ func main() {
 				amqp.Publishing{
 					ContentType:   "text/plain",
 					CorrelationId: d.CorrelationId,
-					Body:          []byte(fmt.Sprintf("Received: %s", d.Body)),
+					Body:          resp,
 				})
 			failOnError(err, "Failed to publish a message")
 

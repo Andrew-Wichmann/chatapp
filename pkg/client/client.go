@@ -1,6 +1,7 @@
 package client
 
 import (
+    "errors"
 	"context"
 	"fmt"
 	"log"
@@ -9,11 +10,22 @@ import (
 	"strconv"
 	"strings"
 	"time"
+    "encoding/json"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type ChatAppClient struct{}
+
+type ChatMessage struct {
+    Message  string `json:"message"`
+    Username string `json:"username"`
+}
+
+type ChatResponse struct {
+    Message  string `json:"message"`
+    Username string `json:"username"`
+}
 
 func failOnError(err error, msg string) {
 	if err != nil {
@@ -33,8 +45,14 @@ func randInt(min int, max int) int {
 	return min + rand.Intn(max-min)
 }
 
-func (ChatAppClient) SendMessageRPC(message string) (res string, err error) {
-	conn, err := amqp.Dial("amqp://user:password@localhost:5672/")
+func (ChatAppClient) SendMessageRPC(message ChatMessage) (res ChatResponse, err error) {
+    msg, err := json.Marshal(message)
+    if err != nil {
+        return ChatResponse{}, err
+    }
+    // TODO: save connection to struct instead of dialing a new connection
+    // every time a message is sent
+    conn, err := amqp.Dial("amqp://user:password@localhost:5672/")
 	failOnError(err, "Failed to connect to RabbitMQ")
 	defer conn.Close()
 
@@ -77,18 +95,21 @@ func (ChatAppClient) SendMessageRPC(message string) (res string, err error) {
 			ContentType:   "text/plain",
 			CorrelationId: corrId,
 			ReplyTo:       q.Name,
-			Body:          []byte(message),
+			Body:          msg,
 		})
 	failOnError(err, "Failed to publish a message")
 
 	for d := range msgs {
 		if corrId == d.CorrelationId {
-			res = fmt.Sprintf("%s", d.Body)
-			break
+            resp := ChatResponse{}
+            err := json.Unmarshal(d.Body, &resp)
+            if err != nil {
+                return ChatResponse{}, err
+            }
+			return resp, nil
 		}
 	}
-
-	return
+    return ChatResponse{}, errors.New(fmt.Sprintf("Didn't get a response back for corrId: %s", corrId))
 }
 
 func bodyFrom(args []string) int {
