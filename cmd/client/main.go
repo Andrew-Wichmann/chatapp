@@ -16,8 +16,11 @@ type App struct {
 	err          error
 	messageInput textarea.Model
 	chatHistory  viewport.Model
+    userNameDialog textarea.Model
 	rpcClient    client.ChatAppClient
+    loggedIn     bool
 	history      []string
+    userName     string
 }
 
 func newApp() App {
@@ -27,7 +30,6 @@ func newApp() App {
 	ta.Prompt = "┃ "
 	ta.ShowLineNumbers = false
 	ta.SetHeight(1)
-	ta.Focus()
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 
 	vp := viewport.New(30, 5)
@@ -41,9 +43,18 @@ func newApp() App {
     vp.KeyMap.Up.SetEnabled(false)
     vp.KeyMap.Down.SetEnabled(false)
 
+    und := textarea.New()
+    und.Placeholder = "<enter username here>"
+	und.Prompt = "┃ "
+	und.ShowLineNumbers = false
+	und.SetHeight(1)
+	und.Focus()
+	und.KeyMap.InsertNewline.SetEnabled(false)
+
 	return App{
 		messageInput: ta,
 		chatHistory:  vp,
+        userNameDialog: und,
 	}
 }
 
@@ -55,13 +66,32 @@ func (app App) View() string {
 	if app.err != nil {
 		return fmt.Sprintf("something went wrong: %s", app.err)
 	}
+    if app.loggedIn == false {
+        return fmt.Sprintf("What should we call you?\n%s", app.userNameDialog.View())
+    }
 	return fmt.Sprintf("%s\n%s\nPress CTRL+C to exit", app.chatHistory.View(), app.messageInput.View())
 }
 
 func (app App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    if app.loggedIn == false {
+        if v, ok := msg.(tea.KeyMsg); ok{
+            if v.Type == tea.KeyEnter {
+                app.userName = app.userNameDialog.Value()
+                app.loggedIn = true
+                app.messageInput.Focus()
+            }
+            if v.Type == tea.KeyCtrlC {
+                return app, tea.Quit
+            }
+        }
+        var userNameDialogCmd tea.Cmd
+        app.userNameDialog, userNameDialogCmd = app.userNameDialog.Update(msg)
+        return app, userNameDialogCmd
+    }
+
 	var (
-		messageCmd     tea.Cmd
-		chatHistoryCmd tea.Cmd
+		messageCmd        tea.Cmd
+		chatHistoryCmd    tea.Cmd
 	)
 
 	app.messageInput, messageCmd = app.messageInput.Update(msg)
@@ -95,7 +125,7 @@ func main() {
 
 func sendMessage(app App) tea.Cmd {
 	return func() tea.Msg {
-        msg := client.ChatMessage{Message: app.messageInput.Value(), Username: "Andrew"}
+        msg := client.ChatMessage{Message: app.messageInput.Value(), Username: app.userName}
 		response, err := app.rpcClient.SendMessageRPC(msg)
 		if err != nil {
 			return errMsg{err}
