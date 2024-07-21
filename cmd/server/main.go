@@ -11,21 +11,14 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+var EXCHANGE = "chat_app"
+
 func failOnError(err error, msg string) {
 	if err != nil {
 		log.Panicf("%s: %s", msg, err)
 	}
 }
 
-func fib(n int) int {
-	if n == 0 {
-		return 0
-	} else if n == 1 {
-		return 1
-	} else {
-		return fib(n-1) + fib(n-2)
-	}
-}
 
 func main() {
 	conn, err := amqp.Dial("amqp://user:password@localhost:5672/")
@@ -35,6 +28,19 @@ func main() {
 	ch, err := conn.Channel()
 	failOnError(err, "Failed to open a channel")
 	defer ch.Close()
+
+    err = ch.ExchangeDeclare(
+        EXCHANGE,    // name
+        "fanout",  // type
+        true,      // durable
+        false,     // auto-deleted
+        false,     // internal
+        false,     // no-wait
+        nil,       // arguments
+    )   
+    if err != nil {
+        panic(err)
+    }
 
 	q, err := ch.QueueDeclare(
 		"rpc_queue", // name
@@ -86,7 +92,7 @@ func main() {
             }
 
 			err = ch.PublishWithContext(ctx,
-				"",        // exchange
+				EXCHANGE,        // exchange
 				d.ReplyTo, // routing key
 				false,     // mandatory
 				false,     // immediate

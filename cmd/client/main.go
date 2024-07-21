@@ -51,15 +51,32 @@ func newApp() App {
 	und.Focus()
 	und.KeyMap.InsertNewline.SetEnabled(false)
 
+
+    c, err := client.NewClient()
+    if err != nil {
+        panic(err)
+    }
+
 	return App{
 		messageInput: ta,
 		chatHistory:  vp,
         userNameDialog: und,
+        rpcClient: c,
 	}
 }
 
+func (app App) receiveMsg() tea.Cmd { 
+    return func() tea.Msg {
+        resp, err := app.rpcClient.ListenForMessage()
+        if err != nil {
+            panic(err)
+        }
+        return resp
+    }
+}
+
 func (app App) Init() tea.Cmd {
-	return textarea.Blink
+	return tea.Batch(textarea.Blink, app.receiveMsg())
 }
 
 func (app App) View() string {
@@ -96,6 +113,7 @@ func (app App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	app.messageInput, messageCmd = app.messageInput.Update(msg)
 	app.chatHistory, chatHistoryCmd = app.chatHistory.Update(msg)
+    var newMessageCmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -112,13 +130,19 @@ func (app App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         app.history = append(app.history, fmt.Sprintf("%s: %s", msg.Username, msg.Message))
 		app.chatHistory.SetContent(strings.Join(app.history, "\n"))
         app.chatHistory.GotoBottom()
+        newMessageCmd = app.receiveMsg()
 	}
-	return app, tea.Batch(messageCmd, chatHistoryCmd)
+	return app, tea.Batch(messageCmd, chatHistoryCmd, newMessageCmd)
+}
+
+func (app App) Close() error {
+   return app.rpcClient.Close() 
 }
 
 func main() {
-	prog := tea.NewProgram(newApp())
-
+    app := newApp()
+    defer app.rpcClient.Close()
+	prog := tea.NewProgram(app)
 	prog.Run()
 }
 
@@ -126,10 +150,10 @@ func main() {
 func sendMessage(app App) tea.Cmd {
 	return func() tea.Msg {
         msg := client.ChatMessage{Message: app.messageInput.Value(), Username: app.userName}
-		response, err := app.rpcClient.SendMessageRPC(msg)
+		err := app.rpcClient.SendMessageRPC(msg)
 		if err != nil {
 			return errMsg{err}
 		}
-		return response
+        return nil
 	}
 }

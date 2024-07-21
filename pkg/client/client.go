@@ -1,21 +1,18 @@
 package client
 
 import (
-    "errors"
 	"context"
-	"fmt"
-	"log"
 	"math/rand"
-	"os"
-	"strconv"
-	"strings"
 	"time"
     "encoding/json"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-type ChatAppClient struct{}
+type ChatAppClient struct{
+    conn *amqp.Connection
+    queue amqp.Queue
+}
 
 type ChatMessage struct {
     Message  string `json:"message"`
@@ -27,11 +24,6 @@ type ChatResponse struct {
     Username string `json:"username"`
 }
 
-func failOnError(err error, msg string) {
-	if err != nil {
-		log.Panicf("%s: %s", msg, err)
-	}
-}
 
 func randomString(l int) string {
 	bytes := make([]byte, l)
@@ -45,41 +37,16 @@ func randInt(min int, max int) int {
 	return min + rand.Intn(max-min)
 }
 
-func (ChatAppClient) SendMessageRPC(message ChatMessage) (res ChatResponse, err error) {
+func (client ChatAppClient) SendMessageRPC(message ChatMessage) (err error) {
+	ch, err := client.conn.Channel()
+    if err != nil {
+        return err
+    }
+    defer ch.Close()
     msg, err := json.Marshal(message)
     if err != nil {
-        return ChatResponse{}, err
+        return err
     }
-    // TODO: save connection to struct instead of dialing a new connection
-    // every time a message is sent
-    conn, err := amqp.Dial("amqp://user:password@localhost:5672/")
-	failOnError(err, "Failed to connect to RabbitMQ")
-	defer conn.Close()
-
-	ch, err := conn.Channel()
-	failOnError(err, "Failed to open a channel")
-	defer ch.Close()
-
-	q, err := ch.QueueDeclare(
-		"",    // name
-		false, // durable
-		true,  // delete when unused
-		true,  // exclusive
-		false, // noWait
-		nil,   // arguments
-	)
-	failOnError(err, "Failed to declare a queue")
-
-	msgs, err := ch.Consume(
-		q.Name, // queue
-		"",     // consumer
-		true,   // auto-ack
-		false,  // exclusive
-		false,  // no-local
-		false,  // no-wait
-		nil,    // args
-	)
-	failOnError(err, "Failed to register a consumer")
 
 	corrId := randomString(32)
 
@@ -94,32 +61,89 @@ func (ChatAppClient) SendMessageRPC(message ChatMessage) (res ChatResponse, err 
 		amqp.Publishing{
 			ContentType:   "text/plain",
 			CorrelationId: corrId,
-			ReplyTo:       q.Name,
+			ReplyTo:       client.queue.Name,
 			Body:          msg,
 		})
-	failOnError(err, "Failed to publish a message")
+    return err
+}
+
+func (client ChatAppClient) ListenForMessage() (ChatResponse, error) {
+	ch, err := client.conn.Channel()
+    if err != nil {
+        return ChatResponse{}, err
+    }
+	defer ch.Close()
+
+    msgs, err := ch.Consume(
+		client.queue.Name, // queue
+		"",     // consumer
+		true,   // auto-ack
+		false,  // exclusive
+		false,  // no-local
+		false,  // no-wait
+		nil,    // args
+	)
+    if err != nil {
+        return ChatResponse{}, err
+    }
 
 	for d := range msgs {
-		if corrId == d.CorrelationId {
-            resp := ChatResponse{}
-            err := json.Unmarshal(d.Body, &resp)
-            if err != nil {
-                return ChatResponse{}, err
-            }
-			return resp, nil
-		}
+        resp := ChatResponse{}
+        err = json.Unmarshal(d.Body, &resp)
+        if err != nil {
+            return ChatResponse{}, err
+        }
+        return resp, err
 	}
-    return ChatResponse{}, errors.New(fmt.Sprintf("Didn't get a response back for corrId: %s", corrId))
+    return ChatResponse{Username: "BOT", Message: "FROM ANOTHER PACKAGE!!!"}, err
 }
 
-func bodyFrom(args []string) int {
-	var s string
-	if (len(args) < 2) || os.Args[1] == "" {
-		s = "30"
-	} else {
-		s = strings.Join(args[1:], " ")
-	}
-	n, err := strconv.Atoi(s)
-	failOnError(err, "Failed to convert arg to integer")
-	return n
+func NewClient() (ChatAppClient, error) {
+    client := ChatAppClient{}
+    conn, err := amqp.Dial("amqp://user:password@localhost:5672/")
+    if err != nil {
+        return ChatAppClient{}, err
+    }
+    client.conn = conn
+
+	ch, err := conn.Channel()
+    if err != nil {
+        conn.Close()
+        return ChatAppClient{}, err
+    }
+
+	q, err := ch.QueueDeclare(
+		"",    // name
+		false, // durable
+		false,  // delete when unused
+		false,  // exclusive
+		false, // noWait
+		nil,   // arguments
+	)
+    if err != nil {
+        ch.Close()
+        conn.Close()
+        return ChatAppClient{}, err
+    }
+    client.queue = q
+
+    err = ch.QueueBind(
+        q.Name, // queue name
+        "",     // routing key
+        "chat_app", // exchange name
+        false,  // no-wait
+        nil,    // arguments
+    )
+    if err != nil {
+        ch.Close()
+        conn.Close()
+        return ChatAppClient{}, err
+    }
+
+    return client, nil
 }
+
+func (client ChatAppClient) Close() error {
+    return client.conn.Close()
+}
+
